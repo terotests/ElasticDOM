@@ -1,5 +1,42 @@
 
-// string template transformation...
+"use strict"; 
+
+function escapeXml(unsafe) {
+    return unsafe.replace(/[<>&'"]/g, function (c) {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '\'': return '&apos;';
+            case '"': return '&quot;';
+        }
+    });
+}
+
+ function $(strings, ...values) {
+
+ 	var s = "",i=0;
+ 	for(; i<values.length; i++) {
+ 		if(typeof(values[i])=="string") {
+ 			s+=strings[i]+escapeXml(values[i]);
+ 		} else {
+ 			var o = values[i];
+ 			if( typeof o == 'object' && o.constructor == Object ) {
+ 				var list = Object.keys(o);
+ 				s+=strings[i]+" "+list.map((key)=>{
+ 					return key+"=\""+escapeXml(o[key]+"")+"\"";
+ 				}).join(" ")+" ";
+ 			} else {
+		 		s+=strings[i]+values[i];
+		 	}
+	 	}
+ 	}
+ 	s+=strings[i];
+ 	// console.log("Building ",s);
+ 	return new UIStructure(s);
+ }
+
+
 function ela(str) {
 
   var s;
@@ -16,6 +53,9 @@ function ela(str) {
 }
 
 
+var TextMeasure = {
+
+};
 
 var UIViewRenderEngine = function( initWithUI ) {
 	this.ui = initWithUI;
@@ -28,7 +68,7 @@ var UIViewRenderEngine = function( initWithUI ) {
 	var last_height  = 0;
 	var last_radius  = 0;
 	var last_color;
-	var last_render = new UIStructure();
+	// var last_render = new UIStructure();
 
 	this.initEngine = function(){
 
@@ -37,7 +77,7 @@ var UIViewRenderEngine = function( initWithUI ) {
 		var view = document.createElement('DIV');
 		view.style.position='absolute';
 		this.view = view;
-		if( this.ui.parentView ) {
+		if( this.ui.parentView && this.ui.parentView.renderer && this.ui.parentView.renderer.view) {
 			this.ui.parentView.renderer.view.appendChild( view );
 
 		}
@@ -63,6 +103,12 @@ var UIViewRenderEngine = function( initWithUI ) {
 		if(ui.borderRadius.is_set) {
 			styles["border-radius"] = ui.borderRadius.pixels;
 		}
+		if(ui.borderWidth.is_set) {
+			styles["border-width"] = ui.borderWidth.pixels;
+		}		
+		if(ui.borderColor.is_set) {
+			styles["border-color"] = ui.borderWidth.pixels;
+		}			
 		if(ui.fontSize.is_set) {
 			styles["font-size"] = ui.fontSize.pixels;
 		}
@@ -92,6 +138,18 @@ var UIViewRenderEngine = function( initWithUI ) {
 		return styles;	
 	}
 
+	// fix: remove child function
+	this.remove = function() {
+		if(this.view && this.view.parentNode) {
+			this.view.parentNode.removeChild( this.view );
+			this.ui = null;
+			if(this.clickListener) {
+				this.view.removeEventListener("click", this.clickListener);
+			}
+			this.clickListener = null;
+		}
+	}
+
 	this.render = function() {
 		var plainView = this.view;
 		if (plainView) {
@@ -109,6 +167,8 @@ var UIViewRenderEngine = function( initWithUI ) {
 			styles.push("top:"+c.y+"px;");
 			styles.push("width:"+c.render_width+"px;");
 			styles.push("height:"+c.render_height+"px;");
+			// styles.push("box-sizing: border-box;");
+
 			if(ui.overflow.is_set && ui.overflow.s_value=="hidden") {
 				styles.push("overflow:hidden;");
 			}
@@ -124,6 +184,16 @@ var UIViewRenderEngine = function( initWithUI ) {
 			if(ui.borderRadius.is_set) {
 				styles.push("border-radius:"+ui.borderRadius.pixels+"px;");
 			}
+
+			// fix: border width, color
+			if(ui.borderWidth.is_set) {
+				styles.push("border-style:solid;");
+				styles.push("border-width:"+ui.borderWidth.pixels+"px;");
+			}
+			if(ui.borderColor.is_set) {
+				styles.push("border-color:"+ui.borderColor.s_value+";");
+			}						
+
 			if(ui.fontSize.is_set) {
 				styles.push("font-size:"+ui.fontSize.pixels+"px;");
 			}
@@ -135,7 +205,8 @@ var UIViewRenderEngine = function( initWithUI ) {
 
 			if(ui.shadowRadius.is_set) {
 				var shadowColor = ui.shadowColor.s_value || "rgba(0,0,0,0.75)"  
-				styles.push("box-shadow: 0px 0px "+ui.shadowRadius.pixels+"px "+parseInt(ui.shadowRadius.pixels/2)+"px "+shadowColor+";");
+				// fix: shadow to correspond canvas shadow
+				styles.push("box-shadow: 0px 0px "+ui.shadowRadius.pixels+"px 0px "+shadowColor+";");
 			}
 
 
@@ -164,10 +235,15 @@ var UIViewRenderEngine = function( initWithUI ) {
 			view.setAttribute('style', styles.join(''));
 
 			// FIX: add event handlers
-			if(ui.eventHandlers["click"]) {
-				view.addEventListener("click", function(){
-					ui.eventHandlers["click"](this);
-				}.bind(this), false);
+			if(ui.eventHandlers["click"] && !this.clickListener) {
+
+				this.clickListener = function(){
+					// ui.sendEvent("click", this)
+					ui.eventHandlers["click"].call(ui,ui);
+				}.bind(this);
+				
+				view.addEventListener("click", this.clickListener , false);
+
 			}
 		}
 	}
@@ -186,7 +262,7 @@ var UILabelRenderEngine = function( initWithUI ) {
 	var last_height  = 0;
 	var last_radius  = 0;
 	var last_color;
-	var last_render = new UIStructure();
+	// var last_render = new UIStructure();
 
 	this.initEngine = function(){
 
@@ -202,6 +278,14 @@ var UILabelRenderEngine = function( initWithUI ) {
 		this.b_init_done = true;
 
 	}
+
+	// fix: remove child function
+	this.remove = function() {
+		if(this.view && this.view.parentNode) {
+			this.view.parentNode.removeChild( this.view );
+			this.ui = null;
+		}
+	}	
 
 	this.render = function() {
 		var plainView = this.view;
@@ -233,6 +317,14 @@ var UILabelRenderEngine = function( initWithUI ) {
 			if(ui.borderRadius.is_set) {
 				styles.push("border-radius:"+ui.borderRadius.pixels+"px;");
 			}
+
+			// FIX: font family
+			if(ui.fontFamily.is_set) {
+				styles.push("font-family:"+ui.fontFamily.s_value+";");
+			} else {
+				styles.push("font-family:Arial;");
+			}
+
 			if(ui.fontSize.is_set) {
 				styles.push("font-size:"+ui.fontSize.pixels+"px;");
 			} else {
@@ -262,8 +354,13 @@ var UILabelRenderEngine = function( initWithUI ) {
 		}
 		var ui = this.ui;
 		var view;
+		return MeasureTextCanvas(ui.fontFamily.s_value || "Arial", ui.fontSize.pixels || 14, usingWidth, ui.text.s_value);
+
 		// debugger;
 		if(!this.view) {
+
+			return MeasureTextCached(ui.fontFamily.s_value || "Arial", ui.fontSize.pixels || 14, usingWidth, ui.text.s_value);
+
 			// debugger;
 			var testView = document.createElement('DIV');
 			testView.style.position='absolute';
@@ -277,7 +374,7 @@ var UILabelRenderEngine = function( initWithUI ) {
 		    testView.style.width = usingWidth+"px";		
 		    // fix: default font size
 		    testView.style.fontSize =  (ui.fontSize.pixels || 14)+"px";
-		    testView.style.fontFamily = "Arial";
+		    testView.style.fontFamily = ui.fontFamily.is_set ? ui.fontFamily.s_value : "Arial";
 
 		    // fix
 		    testView.style.whiteSpace = "pre-line";
@@ -325,7 +422,7 @@ var UISvgPathRenderEngine = function( initWithUI ) {
 	var last_height  = 0;
 	var last_radius  = 0;
 	var last_color;
-	var last_render = new UIStructure();
+	/// var last_render = new UIStructure();
 
 	this.initEngine = function(){
 
@@ -343,22 +440,41 @@ var UISvgPathRenderEngine = function( initWithUI ) {
 		this.g = g;
 		this.path = path;
 
+		view.appendChild( g );
+		g. appendChild( path );		
+
+		// g.setAttributeNS(null, "transform", 'translate(-2, -2)')
+
 		var ui = this.ui;
 			if(ui && ui.viewBox.is_set) {
 				view.setAttribute("viewBox", ui.viewBox.s_value);
 				// styles.push("background-color:"+ui.backgroundColor.s_value+";");
+				view.setAttribute("preserveAspectRatio", "xMinYMin meet");
 			}
 
 		view.style.position='absolute';
 		this.view = view;
 		if( this.ui.parentView ) {
 			this.ui.parentView.renderer.view.appendChild( view );
-			view.appendChild( g );
-			g. appendChild( path );
+
 
 		}
 		this.b_init_done = true;
 
+	}
+
+	// fix: remove child function
+	this.remove = function() {
+	
+		if(this.view && this.view.parentNode) {
+			if(this.clickListener) this.view.removeEventListener("click", this.clickListener);
+			this.view.parentNode.removeChild( this.view );
+			this.ui = null;
+			if(this.clickListener) {
+				this.view.removeEventListener("click", this.clickListener);
+			}
+			this.clickListener = null;			
+		}
 	}
 
 	this.render = function() {
@@ -380,8 +496,8 @@ var UISvgPathRenderEngine = function( initWithUI ) {
 			//styles.push("width:"+c.render_width+"px;");
 			//styles.push("height:"+c.render_height+"px;");
 
-			view.setAttribute('width', c.render_width+"px");
-			view.setAttribute('height', c.render_height+"px");
+			view.setAttributeNS(null, 'width', c.render_width+"px");
+			view.setAttributeNS(null, 'height', c.render_height+"px");
 
 			// view.setAttribute('style', styles.join(''));
 
@@ -392,20 +508,20 @@ var UISvgPathRenderEngine = function( initWithUI ) {
 			}
 			if(ui.borderColor.is_set) {
 				// styles.push("color:"+ui.color.s_value+";");
-				this.path.setAttribute('stroke',ui.borderColor.s_value);
+				this.path.setAttributeNS(null, 'stroke',ui.borderColor.s_value);
 			}
 			if(ui.backgroundColor.is_set) {
-				this.path.setAttribute('fill',ui.backgroundColor.s_value);
+				this.path.setAttributeNS(null, 'fill',ui.backgroundColor.s_value);
 				// styles.push("background-color:"+ui.backgroundColor.s_value+";");
 			}
 			if(ui.opacity.is_set) {
 				// styles.push("opacity:"+ui.opacity.f_value+";");
-				this.path.setAttribute('fill-opacity',ui.opacity.f_value+"");
-				this.path.setAttribute('stroke-opacity',ui.opacity.f_value+"");
+				this.path.setAttributeNS(null, 'fill-opacity',ui.opacity.f_value+"");
+				this.path.setAttributeNS(null, 'stroke-opacity',ui.opacity.f_value+"");
 			}
 			if(ui.svgPath.is_set) {
 				// styles.push("opacity:"+ui.opacity.f_value+";");
-				this.path.setAttribute('d',ui.svgPath.s_value);
+				this.path.setAttributeNS(null, 'd',ui.svgPath.s_value);
 			}			
 
 
@@ -415,8 +531,17 @@ var UISvgPathRenderEngine = function( initWithUI ) {
 				styles.push("filter: drop-shadow(0px 0px "+ui.shadowRadius.pixels+"px "+shadowColor+");");
 			}
 
-			// FIX: SVG PATH element...
+			// FIX: add event handlers
+			if(ui.eventHandlers["click"] && !this.clickListener) {
+				this.clickListener = function(){
+					// ui.sendEvent("click", this)
+					ui.eventHandlers["click"].call(ui,ui);
+				}.bind(this);
+				
+				view.addEventListener("click", this.clickListener , false);
+			}			
 
+			// FIX: SVG PATH element...
 			view.setAttribute('style', styles.join(''));
 
 		}
@@ -436,7 +561,7 @@ var UIImageRenderEngine = function( initWithUI ) {
 	var last_height  = 0;
 	var last_radius  = 0;
 	var last_color;
-	var last_render = new UIStructure();
+	// var last_render = new UIStructure();
 
 	this.initEngine = function(){
 
@@ -451,6 +576,18 @@ var UIImageRenderEngine = function( initWithUI ) {
 		}
 		this.b_init_done = true;
 
+	}
+
+	// fix: remove child function
+	this.remove = function() {
+		if(this.view && this.view.parentNode) {
+			this.view.parentNode.removeChild( this.view );
+			this.ui = null;
+		}
+	}
+
+	this.dom = function() {
+		return this.renderer.view;
 	}
 
 	this.render = function() {
@@ -501,7 +638,7 @@ var UIImageRenderEngine = function( initWithUI ) {
 
 }
 
-var UIInputRenderEngine = function( initWithUI ) {
+var UITextFieldRenderEngine = function( initWithUI ) {
 	this.ui = initWithUI;
 
 	var colorSlide;
@@ -512,13 +649,13 @@ var UIInputRenderEngine = function( initWithUI ) {
 	var last_height  = 0;
 	var last_radius  = 0;
 	var last_color;
-	var last_render = new UIStructure();
+	// var last_render = new UIStructure();
 
 	this.initEngine = function(){
 
 		if(this.b_init_done) { return; }
 
-		var view = document.createElement('INPUT');
+		var view = document.createElement('textarea');
 		view.style.position='absolute';
 		this.view = view;
 		if( this.ui.parentView ) {
@@ -528,6 +665,67 @@ var UIInputRenderEngine = function( initWithUI ) {
 		this.b_init_done = true;
 
 	}
+
+	// fix: remove child function
+	this.remove = function() {
+		if(this.view && this.view.parentNode) {
+			this.view.parentNode.removeChild( this.view );
+			this.ui = null;
+
+			if(this.valueListener) {
+				this.view.removeEventListener("keyup", this.valueListener);
+			}
+			this.valueListener = null;			
+		}
+	}
+
+	this.createCSS = function(ui) {
+
+		var styles = {}
+		if(ui.overflow.is_set && ui.overflow.s_value=="hidden") {
+			styles["overflow"] = "hidden";
+		}
+		if(ui.color.is_set) {
+			styles["color"] = ui.color.s_value;
+		}
+		if(ui.backgroundColor.is_set) {
+			styles["background-color"] = ui.backgroundColor.s_value;
+		}
+		if(ui.opacity.is_set) {
+			styles["opacity"] = ui.opacity.f_value;
+		}
+		if(ui.borderRadius.is_set) {
+			styles["border-radius"] = ui.borderRadius.pixels;
+		}
+		if(ui.fontSize.is_set) {
+			styles["font-size"] = ui.fontSize.pixels;
+		}
+
+		if(ui.linearGradient.is_set) {
+			styles["background"] = "linear-gradient("+ui.linearGradient.s_value+")";
+		}
+
+		if(ui.shadowRadius.is_set) {
+			var shadowColor = ui.shadowColor.s_value || "rgba(0,0,0,0.75)"  
+			styles["box-shadow"]  = " 0px 0px "+ui.shadowRadius.pixels+"px "+parseInt(ui.shadowRadius.pixels/2)+"px "+shadowColor+"";
+		}
+		var transformStr = "";
+		if(ui.scale.is_set) {
+			transformStr += "scale("+ui.scale.f_value+") ";
+		}
+		if(ui.rotate.is_set) {
+			transformStr += "rotate("+ui.rotate.f_value+"deg) ";
+		}		
+
+		if(transformStr) {
+			styles["transform"] = transformStr;
+		}
+
+		styles["transition"] = "all 0.5s";
+
+		return styles;	
+	}	
+
 
 	this.render = function() {
 		var plainView = this.view;
@@ -574,6 +772,204 @@ var UIInputRenderEngine = function( initWithUI ) {
 				var shadowColor = ui.shadowColor.s_value || "rgba(0,0,0,0.75)"  
 				styles.push("box-shadow: 0px 0px "+ui.shadowRadius.pixels+"px "+parseInt(ui.shadowRadius.pixels/2)+"px "+shadowColor+";");
 			}
+
+			if(ui.text.is_set && (!view.value)) {
+				view.value = ui.text.s_value; // .push("opacity:"+ui.opacity.f_value+";");
+			}			
+
+			if(ui.metaTags["Hover"]) {
+				var hover = ui.metaTags["Hover"];
+				var styleObj = this.createCSS(hover);
+				if(!ui.guid) ui.guid = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+				view.className= "view"+ui.guid;
+				css().bind(".view"+ui.guid+":hover", styleObj);
+				styles.push("transition: all 0.3s");
+			}			
+
+			// FIX: add event handlers
+			if(ui.eventHandlers["value"] && !this.valueListener) {
+
+				this.valueListener = function(){
+					// ui.sendEvent("click", this)
+					ui.text.s_value = view.value;
+					ui.eventHandlers["value"].call(ui,ui, view.value);
+				}.bind(this);
+				
+				view.addEventListener("keyup", this.valueListener , false);
+
+			}			
+
+			view.setAttribute('style', styles.join(''));
+
+
+
+		}
+	}
+
+
+}
+
+var UIInputRenderEngine = function( initWithUI ) {
+	this.ui = initWithUI;
+
+	var colorSlide;
+	var usedFont;
+	var last_x  = 0;
+	var last_y  = 0;
+	var last_width   = 0;
+	var last_height  = 0;
+	var last_radius  = 0;
+	var last_color;
+	// var last_render = new UIStructure();
+
+	this.initEngine = function(){
+
+		if(this.b_init_done) { return; }
+
+		var view = document.createElement('INPUT');
+		view.style.position='absolute';
+		this.view = view;
+		if( this.ui.parentView ) {
+			this.ui.parentView.renderer.view.appendChild( view );
+
+		}
+		this.b_init_done = true;
+
+	}
+
+	// fix: remove child function
+	this.remove = function() {
+		if(this.view && this.view.parentNode) {
+			this.view.parentNode.removeChild( this.view );
+			this.ui = null;
+
+			if(this.valueListener) {
+				this.view.removeEventListener("keyup", this.valueListener);
+			}
+			this.valueListener = null;			
+		}
+	}
+
+	this.createCSS = function(ui) {
+
+		var styles = {}
+		if(ui.overflow.is_set && ui.overflow.s_value=="hidden") {
+			styles["overflow"] = "hidden";
+		}
+		if(ui.color.is_set) {
+			styles["color"] = ui.color.s_value;
+		}
+		if(ui.backgroundColor.is_set) {
+			styles["background-color"] = ui.backgroundColor.s_value;
+		}
+		if(ui.opacity.is_set) {
+			styles["opacity"] = ui.opacity.f_value;
+		}
+		if(ui.borderRadius.is_set) {
+			styles["border-radius"] = ui.borderRadius.pixels;
+		}
+		if(ui.fontSize.is_set) {
+			styles["font-size"] = ui.fontSize.pixels;
+		}
+
+		if(ui.linearGradient.is_set) {
+			styles["background"] = "linear-gradient("+ui.linearGradient.s_value+")";
+		}
+
+		if(ui.shadowRadius.is_set) {
+			var shadowColor = ui.shadowColor.s_value || "rgba(0,0,0,0.75)"  
+			styles["box-shadow"]  = " 0px 0px "+ui.shadowRadius.pixels+"px "+parseInt(ui.shadowRadius.pixels/2)+"px "+shadowColor+"";
+		}
+		var transformStr = "";
+		if(ui.scale.is_set) {
+			transformStr += "scale("+ui.scale.f_value+") ";
+		}
+		if(ui.rotate.is_set) {
+			transformStr += "rotate("+ui.rotate.f_value+"deg) ";
+		}		
+
+		if(transformStr) {
+			styles["transform"] = transformStr;
+		}
+
+		styles["transition"] = "all 0.5s";
+
+		return styles;	
+	}	
+
+
+	this.render = function() {
+		var plainView = this.view;
+		if (plainView) {
+			var view = plainView;
+			var ui = this.ui;
+			var c = ui.calculated;
+			var animating_opacity = false;
+			if(ui.isHidden && !view.hidden) {
+			}
+			var styles = []
+
+			styles.push("position:absolute;");
+			styles.push("left:"+c.x+"px;");
+			styles.push("top:"+c.y+"px;");
+			styles.push("width:"+c.render_width+"px;");
+			styles.push("height:"+c.render_height+"px;");
+			if(ui.overflow.is_set && ui.overflow.s_value=="hidden") {
+				styles.push("overflow:hidden;");
+			}
+			if(ui.color.is_set) {
+				styles.push("color:"+ui.color.s_value+";");
+			}
+			if(ui.backgroundColor.is_set) {
+				styles.push("background-color:"+ui.backgroundColor.s_value+";");
+			}
+			if(ui.opacity.is_set) {
+				styles.push("opacity:"+ui.opacity.f_value+";");
+			}
+			if(ui.borderRadius.is_set) {
+				styles.push("border-radius:"+ui.borderRadius.pixels+"px;");
+			}
+			// fix: border width
+			if(ui.borderWidth.is_set) {
+				styles.push("border-width:"+ui.borderWidth.pixels+"px;");
+			} else {
+				styles.push("border-width:0px;");
+			}			
+
+			if(ui.fontSize.is_set) {
+				styles.push("font-size:"+ui.fontSize.pixels+"px;");
+			}
+			if(ui.shadowRadius.is_set) {
+				var shadowColor = ui.shadowColor.s_value || "rgba(0,0,0,0.75)"  
+				styles.push("box-shadow: 0px 0px "+ui.shadowRadius.pixels+"px "+parseInt(ui.shadowRadius.pixels/2)+"px "+shadowColor+";");
+			}
+
+			if(ui.text.is_set && (!view.value)) {
+				view.value = ui.text.s_value; // .push("opacity:"+ui.opacity.f_value+";");
+			}			
+
+			if(ui.metaTags["Hover"]) {
+				var hover = ui.metaTags["Hover"];
+				var styleObj = this.createCSS(hover);
+				if(!ui.guid) ui.guid = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+				view.className= "view"+ui.guid;
+				css().bind(".view"+ui.guid+":hover", styleObj);
+				styles.push("transition: all 0.3s");
+			}			
+
+			// FIX: add event handlers
+			if(ui.eventHandlers["value"] && !this.valueListener) {
+
+				this.valueListener = function(){
+					// ui.sendEvent("click", this)
+					ui.text.s_value = view.value;
+					ui.eventHandlers["value"].call(ui,ui, view.value);
+				}.bind(this);
+				
+				view.addEventListener("keyup", this.valueListener , false);
+
+			}			
+
 			view.setAttribute('style', styles.join(''));
 
 
@@ -595,7 +991,7 @@ var UISwitchRenderEngine = function( initWithUI ) {
 	var last_height  = 0;
 	var last_radius  = 0;
 	var last_color;
-	var last_render = new UIStructure();
+	// var last_render = new UIStructure();
 
 	this.initEngine = function(){
 
@@ -612,7 +1008,17 @@ var UISwitchRenderEngine = function( initWithUI ) {
 
 	}
 
-	this.render = function() {
+	// fix: remove child function
+	this.remove = function() {
+		if(this.view && this.view.parentNode) {
+			this.view.parentNode.removeChild( this.view );
+		}
+	}	
+
+	this.render = function(elem) {
+
+
+
 		var plainView = this.view;
 		if (plainView) {
 			var view = plainView;
@@ -668,7 +1074,7 @@ var UISliderRenderEngine = function( initWithUI ) {
 	var last_height  = 0;
 	var last_radius  = 0;
 	var last_color;
-	var last_render = new UIStructure();
+	// var last_render = new UIStructure();
 
 	this.initEngine = function(){
 
@@ -754,97 +1160,11 @@ function UICalculated() {
 var UITagHandlers = {};
 var UIAttributeHandlers = {};
 
-function UIStructure(strJSON) {
+// static variables placed inside the prototype...
+var UIStructure_prototype = new (function() {
 
-	this.items = [];
-	this.calculated = new UICalculated();
-	this.viewInstance = null;
+	var objectList = [{}];
 
-	this.renderer = null
-	this.parentView = null
-
-	// fix: event handlers
-	this.eventHandlers = {};
-
-	// fix:
-	this.tagName = null;
-	this.isHidden = false;
-
-	// Event handlers...
-	this.tapHandler = null
-
-	// FIX: meta tags, tags that are uknown at parsing time...
-	this.metaTags = {}
-
-	// layout parameters
-	this.x = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.y = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.left = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.top = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-
-	// fix: bottom is set
-    this.bottom = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-    this.right  = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-
-	this.id = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.width = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.height = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.inline = { unit : 0, is_set : false, pixels : 0.0, b_value : false, s_value : "" }
-	this.direction = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.align = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.verticalAlign = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.innerWidth = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.innerHeight = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.lineBreak = { unit : 0, is_set : false, f_value : 0.0, s_value : "", b_value : false }
-	this.overflow = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.fontSize = { unit : 0, is_set : false, pixels : 0.0, f_value : 14.0, s_value : "" }
-	this.fontFamily = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.color = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
-	this.backgroundColor = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
-	this.opacity = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.rotate = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.borderWidth = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.borderColor = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
-	this.borderRadius = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	
-	// FIX: add scale
-	this.scale = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-
-	// FIX: add viewport
-	this.svgPath = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.viewBox = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-
-	this.imageUrl = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.text = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-
-	// fix: adding linear gradient parsing...
-	// linear-gradient = "rgba(0,)
-	this.linearGradient = {
-		is_set : false,
-		colors : [],
-		stops : [],
-		s_value : ""
-	}
-
-	this.vColorSlide = { unit : 0, is_set : false, f_value : 0.0, s_value : "", b_value : false }
-	this.vColorSlideBreak = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.vColorSlideTop = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
-	this.vColorSlideBottom = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
-	this.margin = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.marginLeft = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.marginRight = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.marginBottom = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.marginTop = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.padding = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.paddingLeft = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.paddingRight = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.paddingBottom = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.paddingTop = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.shadowColor = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
-	this.shadowOffsetX = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.shadowOffsetY = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.shadowOpacity = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
-	this.shadowRadius = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
 
 	this.add = function( childView  )  {
 		if(!childView) return;
@@ -854,7 +1174,25 @@ function UIStructure(strJSON) {
 		return this;
 	}
 
-	this.render = function() {
+	// fix: find object by instance id
+	this.getInstance = function(id) {
+		return objectList[id]; 
+	}
+
+	this.toString = function() {
+		if(!this._instanceId) {
+			this._instanceId = objectList.length;
+			objectList.push(this);
+		}
+		return "<o i=\""+this._instanceId+"\"/>";
+	}
+
+	this.render = function(elem) {
+		
+		if(elem) {
+			return this.replace(elem);
+		}
+
 		if( this.renderer ) {
 			this.renderer.initEngine();
 			this.renderer.render();
@@ -864,14 +1202,101 @@ function UIStructure(strJSON) {
 		});
 	}
 
+	// free resources
+	this.free = function() {
+		if(this._instanceId) {
+			objectList[this._instanceId] = null;
+		}
+		if(this.renderer) {
+			this.renderer.remove();
+			this.renderer = null;
+		}
+		for(var i=0;i<this.items.length; i++) {
+			this.items[i].free();
+		}
+		this.items.length = 0;
+	}
+
+	// fix: replace element with other element...
+
+	this.replace = function(newElem) {
+
+
+		if(this.parentView) {
+			var parent = this.parentView;
+			var idx = parent.items.indexOf(this);
+			if(idx >= 0 ) {
+				parent.items.splice(idx,1,newElem);
+			}
+		}
+
+		// fix: renderer must be able to remove
+		if(this.renderer) {
+			 newElem.renderer.initEngine();
+			 if(this.renderer.view && this.renderer.view.parentNode) this.renderer.view.parentNode.replaceChild(newElem.renderer.view, this.renderer.view);
+			 // this.renderer.view.parentNode
+			 this.renderer.remove();
+		}
+
+		newElem.parentView = this.parentView;
+
+		this.free();
+
+		var top = this.parentView || newElem;
+		this.parentView = null;
+		while(top.parentView) top = top.parentView;
+
+		var container = new UIStructure({innerWidth:window.innerWidth+"px",                                   
+		  							       innerHeight:window.innerHeight+"px"});
+		top.calculateLayout(container, new UIRenderPosition({x:0, y:0}));
+		top.render();
+
+		return newElem;
+
+	}
+
+
+	// fix: add mounting
+	this.mount = function(dom) {
+
+		if(typeof(dom)=="string") dom=document.getElementById(dom);
+
+		  var width = dom.innerWidth || dom.clientWidth;
+		  var height = dom.innerHeight || dom.clientHeight;
+
+		  var container = new UIStructure({innerWidth:width+"px",                                   
+		  							       innerHeight:height+"px"});
+		  this.calculateLayout(container, new UIRenderPosition({x:0, y:0}));
+
+		  this.render();  
+		  if(this.renderer) {
+		  	dom.appendChild( this.renderer.view );
+		  } else {
+		  	debugger;
+		  }
+		  
+		  return this;
+	}
+
 	// fix: event handler
 	this.on = function(eventName, fn) {
 		this.eventHandlers[eventName] = fn;
+		return this;
 	}	
+
+	this.trigger = function(eventName, data) {
+		if(this.eventHandlers[eventName]) {
+			this.eventHandlers[eventName](this, data);
+		}
+	}
+
+	// fix: event handler logic
+	// 	ui.sendEvent("click", this)
+	// ui.eventHandlers["click"](this);				
 
 	// FIX: add tags for elements...
 	this.findById = function(id,list) {
-		var list = list || [];
+		var list = list || [];
 		if(this.id.is_set && this.id.s_value == id) list.push(this);
 		for(var i=0; i<this.items.length; i++) {
 			var item = this.items[i];
@@ -880,9 +1305,14 @@ function UIStructure(strJSON) {
 		return list;
 	}
 
+	// FIX: getById
+	this.getById = function(id) {
+		return this.findById(id).pop();
+	}
+
 	// FIX: add tags for elements...
 	this.findTags = function(n,list) {
-		var list = list || [];
+		var list = list || [];
 		if(this.tagName == n) list.push(this);
 		for(var i=0; i<this.items.length; i++) {
 			var item = this.items[i];
@@ -941,9 +1371,20 @@ function UIStructure(strJSON) {
 		}
 		return {value : value, type : type};
 	}
+
+
+
+
 	this.readParams = function( jsonDict ) {
 
 		try {
+
+			// fix: add Event handlers
+
+			if(jsonDict["onClick"]) {
+				// console.log("hasClickHandler...");
+				// How to add into the renderer???
+			}				
 
 			if(jsonDict["x"]) {
 				var value_x =  jsonDict["x"];
@@ -1319,7 +1760,7 @@ function UIStructure(strJSON) {
 
 
 	this.parseXML = function(xmlStr) {
-		parser = new DOMParser();
+		var parser = new DOMParser();
 		var xmlDoc = parser.parseFromString(xmlStr, "text/xml");
 		return this.readXMLDoc( xmlDoc.childNodes[0], null );
 	}
@@ -1327,14 +1768,38 @@ function UIStructure(strJSON) {
 	this.readXMLDoc = function(node, parentNode) {
 		var uiObj;
 		if(node.nodeType===1) {
+
+			var name = node.nodeName;
+
+			if(name=="o") {
+				var attr = node.attributes[0];
+				if(attr) {
+					var idx = parseInt(attr.nodeValue);
+					return objectList[idx];
+				}
+			}
+
 			var attrObj = {}
 			for(var a=0; a<node.attributes.length; a++) {
 				var attr = node.attributes[a];
+				if(attr.nodeName=="style") {
+					var s = attr.nodeValue;
+					// console.log("STYLE", s);
+					var parts = s.split(";");
+					for(var ii=0; ii<parts.length;ii++) {
+						var p = parts[ii];
+						var p2 = p.split(":");
+						if(p2[0] && p2[1]) {
+							attrObj[p2[0]] = p2[1];
+						}
+					}
+				}
 				attrObj[attr.nodeName] = attr.nodeValue;
 			}
 			uiObj = parentNode ? new UIStructure(attrObj) : this;
 			if( uiObj == this ) this.readParams(attrObj);
-			var name = node.nodeName;
+			
+			// "<object id=\""+this._instanceId+"\"/>";
 
 			if(this.tagHandlers && this.tagHandlers[name]) {
 					
@@ -1342,18 +1807,12 @@ function UIStructure(strJSON) {
 
 			// fix: read tagname
 			uiObj.tagName = name;
-			if(name=='Input') uiObj.renderer = new UIInputRenderEngine(uiObj);
-			if(name=='Label') uiObj.renderer = new UILabelRenderEngine(uiObj);
-			if(name=='View') uiObj.renderer = new UIViewRenderEngine(uiObj);
-			if(name=='Image') uiObj.renderer = new UIImageRenderEngine(uiObj);
-			if(name=='Switch') uiObj.renderer = new UISwitchRenderEngine(uiObj);
-			if(name=='Slider') uiObj.renderer = new UISliderRenderEngine(uiObj);
-			if(name=='Path') uiObj.renderer = new UISvgPathRenderEngine(uiObj);
 
-			//if(UITagHandlers[name]) {
-			//	UITagHandlers[name](uiObj, node, parentNode);
-			//}
-
+			// Aliases...
+			var r = UIStructure.renderers[name];
+			if(r) {
+				uiObj.renderer = new r(uiObj);
+			}
 
 
 			if(name=="Hover") {
@@ -1580,6 +2039,18 @@ function UIStructure(strJSON) {
 		this.height.pixels = this.height.pixels - (this.marginTop.pixels + this.marginBottom.pixels);
 		this.innerWidth.pixels = this.width.pixels - (this.paddingRight.pixels + this.paddingLeft.pixels + this.borderWidth.pixels*2);
 		this.innerHeight.pixels = this.height.pixels - (this.paddingTop.pixels + this.paddingBottom.pixels + this.borderWidth.pixels*2);
+
+		// fix: fontsize
+		if(this.fontSize.is_set) {
+			switch(this.fontSize.unit) {
+				case 1 : this.fontSize.pixels = this.width.pixels * this.fontSize.f_value / 100;break;
+				case 2 : this.fontSize.pixels = this.fontSize.f_value;break;
+				case 3 : this.fontSize.pixels = this.fontSize.f_value;break;
+				case 4 : this.fontSize.pixels = this.height.pixels * this.fontSize.f_value / 100;break;
+				default : break
+			}
+		}
+
 		if(this.borderRadius.is_set) {
 			switch(this.borderRadius.unit) {
 				case 1 : this.borderRadius.pixels = this.width.pixels * this.borderRadius.f_value / 100;break;
@@ -1781,5 +2252,128 @@ function UIStructure(strJSON) {
 			return elem_h;
 		} 
 
-	this.init(strJSON);
+
+})();
+
+
+
+var UIStructure = function(strJSON) {
+
+		this.items = [];
+		this.calculated = new UICalculated();
+		this.viewInstance = null;
+
+		this.renderer = null
+		this.parentView = null
+
+		// fix: event handlers
+		this.eventHandlers = {};
+
+		// fix:
+		this.tagName = null;
+		this.isHidden = false;
+
+		// Event handlers...
+		this.tapHandler = null
+
+		// FIX: meta tags, tags that are uknown at parsing time...
+		this.metaTags = {}
+
+		// layout parameters
+		this.x = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.y = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.left = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.top = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
+		// fix: bottom is set
+	    this.bottom = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+	    this.right  = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
+		this.id = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.width = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.height = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.inline = { unit : 0, is_set : false, pixels : 0.0, b_value : false, s_value : "" }
+		this.direction = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.align = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.verticalAlign = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.innerWidth = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.innerHeight = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.lineBreak = { unit : 0, is_set : false, f_value : 0.0, s_value : "", b_value : false }
+		this.overflow = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.fontSize = { unit : 0, is_set : false, pixels : 0.0, f_value : 14.0, s_value : "" }
+		this.fontFamily = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.color = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
+		this.backgroundColor = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
+		this.opacity = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.rotate = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.borderWidth = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.borderColor = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
+		this.borderRadius = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		
+		// FIX: add scale
+		this.scale = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
+		// FIX: add viewport
+		this.svgPath = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.viewBox = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
+		this.imageUrl = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.text = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
+		// fix: adding linear gradient parsing...
+		// linear-gradient = "rgba(0,)
+		this.linearGradient = {
+			is_set : false,
+			colors : [],
+			stops : [],
+			s_value : ""
+		}
+
+		this.vColorSlide = { unit : 0, is_set : false, f_value : 0.0, s_value : "", b_value : false }
+		this.vColorSlideBreak = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.vColorSlideTop = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
+		this.vColorSlideBottom = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
+		this.margin = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.marginLeft = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.marginRight = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.marginBottom = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.marginTop = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.padding = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.paddingLeft = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.paddingRight = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.paddingBottom = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.paddingTop = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.shadowColor = {  unit : 0, is_set : false, f_value : 0.0, s_value : "" , color : "#000000" }
+		this.shadowOffsetX = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.shadowOffsetY = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.shadowOpacity = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+		this.shadowRadius = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
+		this.init(strJSON);
+	
 }
+UIStructure.prototype = UIStructure_prototype;
+
+UIStructure.renderers = {
+	'Input' : 		UIInputRenderEngine,
+	'input' : 		UIInputRenderEngine,
+	
+	'Label' : 		UILabelRenderEngine,
+	'span' : 		UILabelRenderEngine,
+
+	'View' : 		UIViewRenderEngine,
+	'div' : 		UIViewRenderEngine,
+	
+	'Image' : 		UIImageRenderEngine,
+	'img' : 		UIImageRenderEngine,
+
+	'Switch' : 		UISwitchRenderEngine,
+	'Slider' : 		UISliderRenderEngine,
+	
+	'Path' : 		UISvgPathRenderEngine,
+	'path' : 		UISvgPathRenderEngine,
+
+	'TextField' : 	UITextFieldRenderEngine,
+	'textarea' : 	UITextFieldRenderEngine
+}
+
