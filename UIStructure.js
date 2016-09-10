@@ -53,10 +53,6 @@ function ela(str) {
 }
 
 
-var TextMeasure = {
-
-};
-
 var UIViewRenderEngine = function( initWithUI ) {
 	this.ui = initWithUI;
 
