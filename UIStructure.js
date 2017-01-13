@@ -53,6 +53,10 @@ function ela(str) {
 }
 
 
+var TextMeasure = {
+
+};
+
 var UIViewRenderEngine = function( initWithUI ) {
 	this.ui = initWithUI;
 
@@ -229,6 +233,22 @@ var UIViewRenderEngine = function( initWithUI ) {
 			}
 
 			view.setAttribute('style', styles.join(''));
+
+			if( ui.eventOnClick && !ui.eventOnClickSet) {
+				// ...
+				view.addEventListener("click", ()=>{
+
+					var ctx = ui.findContext();
+					if(ctx) {
+						ctx[ui.eventOnClick] = {
+							hadEvent : true
+						}
+					}
+
+				}, false);
+
+				ui.eventOnClickSet = true;
+			}
 
 			// FIX: add event handlers
 			if(ui.eventHandlers["click"] && !this.clickListener) {
@@ -1156,11 +1176,48 @@ function UICalculated() {
 var UITagHandlers = {};
 var UIAttributeHandlers = {};
 
+var UICompRegistry = {};
+
 // static variables placed inside the prototype...
 var UIStructure_prototype = new (function() {
 
+    // fix: list of objects
 	var objectList = [{}];
 
+	// fix: component definitions
+	var components = {};
+
+
+	this.registerComponent = function(name, xml) {
+		UICompRegistry[name] = xml;
+	}
+
+	this.findComponent = function(name) {
+		return UICompRegistry[name] 
+	}
+
+	this.findContent = function(list) {
+		var list = list || [];
+		if(this.id.is_set && this.id.s_value == "content") {
+			list.push(this);
+			return;
+		}
+		if(this.tagName == "content") {
+			list.push(this);
+			return;
+		}
+		for(var i=0; i<this.items.length; i++) {
+			var item = this.items[i];
+			item.findContent(list)
+			if(list.length) return list[0];
+		}
+		return list[0]
+	}
+
+	this.findContext = function() {
+		if(this._ctx) return this._ctx;
+		if(this.parentView) return this.parentView.findContext();
+	}
 
 	this.add = function( childView  )  {
 		if(!childView) return;
@@ -1217,7 +1274,6 @@ var UIStructure_prototype = new (function() {
 
 	this.replace = function(newElem) {
 
-
 		if(this.parentView) {
 			var parent = this.parentView;
 			var idx = parent.items.indexOf(this);
@@ -1251,6 +1307,35 @@ var UIStructure_prototype = new (function() {
 
 	}
 
+	this.remove = function() {
+
+		if(!this.parentView) return;
+
+
+		var parent = this.parentView;
+		var idx = parent.items.indexOf(this);
+		if(idx >= 0 ) {
+			parent.items.splice(idx,1,newElem);
+		}
+
+		var top = this.parentView;
+
+		if(this.renderer) {
+			 this.renderer.remove();
+		}
+		this.free();
+
+		this.parentView = null;
+		while(top.parentView) top = top.parentView;
+
+		var container = new UIStructure({innerWidth:window.innerWidth+"px",                                   
+		  							       innerHeight:window.innerHeight+"px"});
+
+		top.calculateLayout(container, new UIRenderPosition({x:0, y:0}));
+		top.render();
+
+	}
+
 
 	// fix: add mounting
 	this.mount = function(dom) {
@@ -1262,6 +1347,9 @@ var UIStructure_prototype = new (function() {
 
 		  var container = new UIStructure({innerWidth:width+"px",                                   
 		  							       innerHeight:height+"px"});
+
+		  this._container = container;
+
 		  this.calculateLayout(container, new UIRenderPosition({x:0, y:0}));
 
 		  this.render();  
@@ -1272,6 +1360,14 @@ var UIStructure_prototype = new (function() {
 		  }
 		  
 		  return this;
+	}
+
+	this.refreshView = function() {
+		  
+		if(this._container) {
+		  this.calculateLayout(this._container, new UIRenderPosition({x:0, y:0}));
+		  this.render();  		
+		}
 	}
 
 	// fix: event handler
@@ -1378,7 +1474,8 @@ var UIStructure_prototype = new (function() {
 			// fix: add Event handlers
 
 			if(jsonDict["onClick"]) {
-				// console.log("hasClickHandler...");
+				console.log("hasClickHandler...", jsonDict["onClick"]);
+				this.eventOnClick = jsonDict["onClick"]
 				// How to add into the renderer???
 			}				
 
@@ -1437,6 +1534,15 @@ var UIStructure_prototype = new (function() {
 				this.id.s_value = value_id
 				this.id.is_set = true;
 			}
+
+			// component name...
+			if(jsonDict["cname"]) {
+				var value_id =  jsonDict["cname"];
+				this.cname.s_value = value_id;
+				this.cname.is_set = true;
+				
+			}
+
 			if(jsonDict["width"]) {
 				var value_width =  jsonDict["width"];
 				var width = this.convertStrToValue( value_width );
@@ -1776,6 +1882,7 @@ var UIStructure_prototype = new (function() {
 			}
 
 			var attrObj = {}
+			var id_value;
 			for(var a=0; a<node.attributes.length; a++) {
 				var attr = node.attributes[a];
 				if(attr.nodeName=="style") {
@@ -1791,9 +1898,43 @@ var UIStructure_prototype = new (function() {
 					}
 				}
 				attrObj[attr.nodeName] = attr.nodeValue;
+
+				if(attr.nodeName == "cname") {
+					// serialize the object into XML string
+					// components[value_id] = 
+
+var oSerializer = new XMLSerializer();
+var sXML = oSerializer.serializeToString(node);	
+
+				    console.log("found XML string", sXML );			
+				}
+
+				if(attr.nodeName=="id") {
+					id_value = attr.nodeValue;
+				}
 			}
-			uiObj = parentNode ? new UIStructure(attrObj) : this;
-			if( uiObj == this ) this.readParams(attrObj);
+
+			// 
+
+			var compData = this.findComponent(name)
+			var content;
+
+			if(compData) {
+				// debugger;
+				uiObj = new UIStructure(compData);
+				content = uiObj.findContent() || uiObj;
+				uiObj.readParams( attrObj );
+
+			} else {
+				uiObj = parentNode ? new UIStructure(attrObj) : this;
+				if( uiObj == this ) this.readParams(attrObj);
+				content = uiObj;
+			}
+
+
+			if(uiObj && id_value) {
+				if(this._context) this._context.set_object( id_value, uiObj );
+			}
 			
 			// "<object id=\""+this._instanceId+"\"/>";
 
@@ -1818,7 +1959,7 @@ var UIStructure_prototype = new (function() {
 			for(var i=0; i<node.childNodes.length; i++) {
 				var childNode = node.childNodes[i]
 				var childUI = this.readXMLDoc(childNode, uiObj);
-				if( childUI ) uiObj.add(childUI); 
+				if( childUI ) content.add(childUI); 
 			}
 			return uiObj;
 		}
@@ -2078,6 +2219,7 @@ var UIStructure_prototype = new (function() {
 			node.calculated.y = node.marginTop.pixels + node.top.pixels;
 			node.calculated.absolute = true;
 		} else {
+			// FIX: bottom...
 			if(node.bottom.is_set) {
 				node.calculated.y = node.marginTop.pixels + ( parentNode.innerHeight.pixels - node.bottom.pixels - node.calculated.height);
 				node.calculated.absolute = true;
@@ -2253,7 +2395,10 @@ var UIStructure_prototype = new (function() {
 
 
 
-var UIStructure = function(strJSON) {
+var UIStructure = function(strJSON, context) {
+
+
+		this._context = context;
 
 		this.items = [];
 		this.calculated = new UICalculated();
@@ -2286,6 +2431,10 @@ var UIStructure = function(strJSON) {
 	    this.right  = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
 
 		this.id = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
+		// fix: CNAME = component name
+		this.cname = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
+
 		this.width = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
 		this.height = { unit : 0, is_set : false, pixels : 0.0, f_value : 0.0, s_value : "" }
 		this.inline = { unit : 0, is_set : false, pixels : 0.0, b_value : false, s_value : "" }
@@ -2372,4 +2521,5 @@ UIStructure.renderers = {
 	'TextField' : 	UITextFieldRenderEngine,
 	'textarea' : 	UITextFieldRenderEngine
 }
+
 
